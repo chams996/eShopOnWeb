@@ -1,0 +1,14 @@
+---
+- name: "Provisioning des outils DevSecOps"
+  hosts: localhost
+  connection: local
+  become: yes
+
+  vars:
+    kubectl_version: "v1.31.0"
+    sonar_version: "6.2.1.4610"
+
+  roles:
+    - kubernetes
+    - helm
+    - sonarqube

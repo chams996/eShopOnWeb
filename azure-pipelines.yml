@@ -1,0 +1,81 @@
+trigger:
+- master
+
+pool:
+  name: 'Default' # Utilizing self-hosted agent for optimized build performance and tool control
+
+variables:
+- group: eshop-terraform-vars # Global variables and sensitive storage credentials
+
+steps:
+
+# Step 0: Infrastructure as Code (IaC) - Host Hardening
+# Ensures the build agent is pre-configured with required DevSecOps binaries (Kubectl, Helm, SonarScanner).
+- script: |
+    cd ansible
+    ansible-playbook -i inventory.ini site.yml
+  displayName: 'Provision DevSecOps Toolchain (Ansible)'
+
+# Step 1: Software Composition Analysis (SCA)
+# Auditing third-party dependencies for known vulnerabilities (CVEs) using OWASP Dependency-Check.
+- task: dependency-check-build-task@6
+  inputs:
+    projectName: 'eShopOnWeb-DevSecOps'
+    scanPath: '$(Build.SourcesDirectory)'
+    format: 'HTML'
+    nvdApiKey: '$(nvdApiKey)'
+    suppressionFile: 'suppress.xml'
+  displayName: 'SCA: Dependency Vulnerability Scan'
+
+# Step 2: Automated Secret Injection & Configuration Management
+# Securely injecting runtime secrets into Terraform manifests and app files to avoid hardcoding.
+- task: replacetokens@5
+  inputs:
+    rootDirectory: '$(Build.SourcesDirectory)'
+    targetFiles: '**/*.tf, **/*.cshtml.cs, **/appsettings.json'
+    tokenPrefix: '#{'
+    tokenSuffix: '}#'
+  displayName: 'Secret Management: Replace Configuration Tokens'
+
+# Step 3: Application Build & Quality Assurance
+# Compiling the .NET Core solution to ensure integrity and verify security fixes.
+- task: DotNetCoreCLI@2
+  inputs:
+    command: 'build'
+    projects: '**/*.csproj'
+  displayName: 'Build: Compile & Verify Application Integrity'
+
+# Step 4: Optimized GitHub Mirroring for Advanced SAST (CodeQL)
+
+- script: |
+    # 1. Identity Setup
+    git config --global user.email "chamseddine.boughanmi@esprit.tn"
+    git config --global user.name "chams996"
+
+    # 2. Workspace Preparation
+    mkdir -p ../mirror_temp
+    cp -R . ../mirror_temp/
+    cd ../mirror_temp
+    
+    # 3. CLEANUP: Removing problematic files
+    # Delete .terraform and binaries to save size
+    find . -name ".terraform" -type d -exec rm -rf {} +
+    find . -name "bin" -type d -exec rm -rf {} +
+    find . -name "obj" -type d -exec rm -rf {} +
+    
+    # IMPORTANT: Delete existing GitHub workflows to avoid 'workflow scope' error
+    rm -rf .github/workflows
+    
+    rm -rf .git
+
+    # 4. Initialize and Push
+    git init
+    git add .
+    git commit -m "DevSecOps Mirror: Clean push without conflicting workflows"
+    
+    # 5. Push to GitHub
+    git remote add github https://$(GITHUB_TOKEN)@github.com/chams996/eShopOnWeb.git
+    git push --force github master:main
+  displayName: 'DevSecOps: Secure GitHub Mirroring (Workflow Fixed)'
+  env:
+    GITHUB_TOKEN: $(GITHUB_TOKEN)

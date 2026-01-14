@@ -1,0 +1,19 @@
+---
+- name: "Installer unzip (dépendance)"
+  apt:
+    name: unzip
+    state: present
+    update_cache: yes
+
+- name: "Télécharger et extraire Sonar-Scanner"
+  unarchive:
+    src: "https://binaries.sonarsource.com/Distribution/sonar-scanner-cli/sonar-scanner-cli-{{ sonar_version }}-linux-x64.zip"
+    dest: /opt/
+    remote_src: yes
+    creates: "/opt/sonar-scanner-{{ sonar_version }}-linux-x64"
+
+- name: "Créer le lien symbolique pour sonar-scanner"
+  file:
+    src: "/opt/sonar-scanner-{{ sonar_version }}-linux-x64/bin/sonar-scanner"
+    dest: /usr/local/bin/sonar-scanner
+    state: link
