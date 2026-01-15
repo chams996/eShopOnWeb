@@ -1,0 +1,29 @@
+---
+- name: Update apt cache
+  apt:
+    update_cache: yes
+    cache_valid_time: 3600
+
+- name: Install OpenJDK 17
+  apt:
+    name: openjdk-17-jdk
+    state: present
+
+- name: Get path of Java 17
+  shell: update-java-alternatives -l | grep 1.17 | awk '{print $3}'
+  register: java_17_path
+  changed_when: false
+
+- name: Force Java 17 as the default version
+  command: "update-java-alternatives --set {{ java_17_path.stdout }}"
+  when: java_17_path.stdout is defined
+  become: yes
+
+- name: Verify Java version in logs
+  command: java -version
+  register: java_check
+  changed_when: false
+
+- name: Print Java version for debugging
+  debug:
+    msg: "{{ java_check.stderr_lines }}"

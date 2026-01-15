@@ -1,0 +1,110 @@
+trigger:
+- master
+
+pool:
+  name: 'Default'
+
+variables:
+- group: eshop-terraform-vars
+
+stages:
+# STAGE 1: Infrastructure Provisioning & Java Setup
+- stage: Security_Provisioning
+  displayName: 'Infrastructure & SCA'
+  jobs:
+  - job: Setup_And_Scan
+    displayName: 'Ansible Provisioning'
+    steps:
+    - script: |
+        cd ansible
+        ansible-playbook -i inventory.ini site.yml
+      displayName: 'Run Ansible (Install Java 17 & Tools)'
+
+    - script: |
+        echo "Restarting Agent to apply Java 17 changes..."
+        nohup sh -c "sudo ~/myagent/svc.sh stop && sudo ~/myagent/svc.sh start" &
+      displayName: 'Hot Reload Agent Environment'
+
+    - task: dependency-check-build-task@6
+      inputs:
+        projectName: 'eShopOnWeb-DevSecOps'
+        scanPath: '$(Build.SourcesDirectory)'
+        format: 'HTML'
+        nvdApiKey: '$(nvdApiKey)'
+      displayName: 'SCA: Dependency Analysis'
+
+# STAGE 2: Secure Build & SAST (SonarQube v8)
+- stage: Build_And_Quality
+  displayName: 'Build & Code Quality'
+  dependsOn: Security_Provisioning
+  jobs:
+  - job: Build_With_Sonar
+    displayName: 'Compile and SonarQube Scan'
+    steps:
+    - task: replacetokens@5
+      inputs:
+        rootDirectory: '$(Build.SourcesDirectory)'
+        targetFiles: '**/*.tf, **/*.cshtml.cs, **/appsettings.json, **/*.cs'
+        tokenPrefix: '#{'
+        tokenSuffix: '}#'
+      displayName: 'Secret Injection'
+
+    - task: SonarQubePrepare@8
+      displayName: 'Initialize SonarQube v8'
+      inputs:
+        SonarQube: 'Sonar-VM-Connection'
+        scannerMode: 'dotnet'
+        projectKey: 'eShopOnWeb-Project'
+        projectName: 'eShopOnWeb'
+
+    - task: DotNetCoreCLI@2
+      displayName: 'Compile Application'
+      inputs:
+        command: 'build'
+        projects: '**/*.csproj'
+        arguments: '--configuration Release'
+
+    - task: SonarQubeAnalyze@8
+      displayName: 'Run SAST Analysis'
+
+    # This task will now wait for the Webhook response from SonarQube
+    - task: SonarQubePublish@8
+      displayName: 'Check Quality Gate Status'
+      inputs:
+        pollingTimeoutSec: '300'
+
+# STAGE 3: External Security Sync
+- stage: GitHub_Security_Sync
+  displayName: 'GitHub Mirroring'
+  dependsOn: Build_And_Quality
+  jobs:
+  - job: Mirror_Code
+    steps:
+    - script: |
+        git config --global user.email "chamseddine.boughanmi@esprit.tn"
+        git config --global user.name "chams996"
+
+        # 1. Prepare clean workspace
+        mkdir -p ../mirror_temp
+        cp -R . ../mirror_temp/
+        cd ../mirror_temp
+
+        # 2. CLEANING HEAVY FILES
+        echo "Cleaning heavy binaries and hidden terraform files..."
+        find . -name ".terraform" -type d -exec rm -rf {} +
+        find . -name "terraform-provider-*" -exec rm -rf {} +
+        find . -name "bin" -type d -exec rm -rf {} +
+        find . -name "obj" -type d -exec rm -rf {} +
+
+        # 3. Re-initialize and Push
+        rm -rf .git
+        git init
+        git add .
+        git commit -m "DevSecOps Mirror: Clean Push $(Build.BuildId)"
+
+        # 4. Push to GitHub
+        git remote add github https://$(GITHUB_TOKEN)@github.com/chams996/eShopOnWeb.git
+        git push --force github master:main
+      displayName: 'Mirror Clean Repository to GitHub'
+      env:
+        GITHUB_TOKEN: $(GITHUB_TOKEN)

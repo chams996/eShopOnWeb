@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<suppressions xmlns="https://jeremylong.github.io/DependencyCheck/dependency-suppression.1.3.xsd">
+    <suppress>
+        <notes><![CDATA[False Positive: Mismatch between .NET Ardalis library and Drupal Services module.]]></notes>
+        <packageSearchLookup>pkg:nuget/Ardalis.ListStartupServices@1.1.4</packageSearchLookup>
+        <cpe>cpe:/a:services_project:services</cpe>
+    </suppress>
+</suppressions>
